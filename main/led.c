@@ -36,6 +36,32 @@ static const char *TAG = "led";
 static uint8_t s_brightness = CONFIG_LED_STATUS_BRIGHTNESS;
 
 // ============================================================================
+// ****************** LED BREATHING *******
+// ============================================================================
+
+#define RGB_LED_COUNT       8
+
+// Visualizer input range in dBFS.
+// Signals below VIS_DB_MIN are effectively dark.
+// Signals at VIS_DB_MAX or above are full scale.
+#define VIS_DB_MIN         -50.0f
+#define VIS_DB_MAX         -10.0f
+
+// Envelope smoothing.
+// Higher attack = faster response.
+// Lower release = slower decay.
+#define VIS_ATTACK           0.30f
+#define VIS_RELEASE          0.055f
+
+// < 1 makes lower levels more visible.
+#define VIS_GAMMA            0.65f
+
+// Maximum LED drive, 0.0 ... 1.0.
+// Starting at 0.70 keeps 8 LEDs from becoming excessively bright.
+#define VIS_MAX_BRIGHTNESS   0.70f
+
+
+// ============================================================================
 // Configuration helpers - map Kconfig to led_mode_t
 // ============================================================================
 
@@ -333,7 +359,7 @@ static led_mode_t s_rgb_mode = LED_OFF;
 static void rgb_led_init(void) {
   led_strip_config_t strip_cfg = {
       .strip_gpio_num = CONFIG_LED_RGB_GPIO,
-      .max_leds = 1,
+      .max_leds = RGB_LED_COUNT,
       .led_model = LED_MODEL_WS2812,
       .flags.invert_out = false,
   };
@@ -353,13 +379,29 @@ static void rgb_led_init(void) {
   ESP_LOGI(TAG, "RGB LED initialized on GPIO %d", CONFIG_LED_RGB_GPIO);
 }
 
-static void rgb_led_set_color(uint8_t r, uint8_t g, uint8_t b) {
-  if (!s_rgb_strip) {
-    return;
-  }
-  led_strip_set_pixel(s_rgb_strip, 0, r, g, b);
-  led_strip_refresh(s_rgb_strip);
+// static void rgb_led_set_color(uint8_t r, uint8_t g, uint8_t b) {
+//   if (!s_rgb_strip) {
+//     return;
+//   }
+//   led_strip_set_pixel(s_rgb_strip, 0, r, g, b);
+//   led_strip_refresh(s_rgb_strip);
+// }
+
+static void rgb_led_set_color(uint8_t r, uint8_t g, uint8_t b)
+{
+#ifdef CONFIG_LED_RGB_ENABLED
+    if (s_rgb_strip == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < RGB_LED_COUNT; i++) {
+        led_strip_set_pixel(s_rgb_strip, i, r, g, b);
+    }
+
+    led_strip_refresh(s_rgb_strip);
+#endif
 }
+
 
 static void rgb_led_clear(void) {
   if (!s_rgb_strip) {
@@ -388,40 +430,134 @@ static void rgb_led_set_mode(led_mode_t mode) {
   }
 }
 
-static void rgb_led_set_vu(float norm, float bass_ratio) {
-  if (s_rgb_mode != LED_VU || !s_rgb_strip) {
-    return;
-  }
+// static void rgb_led_set_vu(float norm, float bass_ratio) {
+//   if (s_rgb_mode != LED_VU || !s_rgb_strip) {
+//     return;
+//   }
 
-  if (norm <= 0.0f || s_brightness == 0) {
-    rgb_led_clear();
-    return;
-  }
+//   if (norm <= 0.0f || s_brightness == 0) {
+//     rgb_led_clear();
+//     return;
+//   }
 
-  uint8_t val = (uint8_t)(norm * (float)s_brightness);
-  if (val < 1) {
-    val = 1;
-  }
+//   uint8_t val = (uint8_t)(norm * (float)s_brightness);
+//   if (val < 1) {
+//     val = 1;
+//   }
 
-  // Map to HSV hue: 170 (blue, quiet) -> 85 (green, medium) -> 0 (red, loud)
-  uint16_t hue = (uint16_t)(170.0f * (1.0f - norm));
+//   // Map to HSV hue: 170 (blue, quiet) -> 85 (green, medium) -> 0 (red, loud)
+//   uint16_t hue = (uint16_t)(170.0f * (1.0f - norm));
 
-  // Shift towards purple/magenta when bassy
-  if (bass_ratio > 0.3f) {
-    hue = (uint16_t)(hue + (uint16_t)(bass_ratio * 60.0f));
-    if (hue > 255) {
-      hue = 255;
+//   // Shift towards purple/magenta when bassy
+//   if (bass_ratio > 0.3f) {
+//     hue = (uint16_t)(hue + (uint16_t)(bass_ratio * 60.0f));
+//     if (hue > 255) {
+//       hue = 255;
+//     }
+//   }
+
+//   // High saturation, reduce slightly at very high energy for warm white
+//   uint8_t sat = 255;
+//   if (norm > 0.85f) {
+//     sat = (uint8_t)(255 - (uint8_t)((norm - 0.85f) / 0.15f * 80.0f));
+//   }
+
+//   led_strip_set_pixel_hsv(s_rgb_strip, 0, hue, sat, val);
+//   led_strip_refresh(s_rgb_strip);
+// }
+
+static void rgb_led_set_vu(float level, float unused_bass_ratio)
+{
+#ifdef CONFIG_LED_RGB_ENABLED
+    (void)unused_bass_ratio;
+
+    // Clamp input.
+    if (level < 0.0f) {
+        level = 0.0f;
     }
-  }
 
-  // High saturation, reduce slightly at very high energy for warm white
-  uint8_t sat = 255;
-  if (norm > 0.85f) {
-    sat = (uint8_t)(255 - (uint8_t)((norm - 0.85f) / 0.15f * 80.0f));
-  }
+    if (level > 1.0f) {
+        level = 1.0f;
+    }
 
-  led_strip_set_pixel_hsv(s_rgb_strip, 0, hue, sat, val);
-  led_strip_refresh(s_rgb_strip);
+    /*
+     * Perceptual brightness curve.
+     *
+     * Gamma < 1 means quiet passages remain visible without requiring
+     * loud passages to run the LEDs at full electrical brightness.
+     */
+    float brightness = powf(level, VIS_GAMMA);
+
+    brightness *= VIS_MAX_BRIGHTNESS;
+
+    /*
+     * Colour progression:
+     *
+     *   0.00          0.33          0.66          1.00
+     *    BLUE ---------- GREEN -------- YELLOW -------- RED
+     *
+     * Colour transitions are continuously interpolated.
+     */
+    float r;
+    float g;
+    float b;
+
+    if (level < 0.33f) {
+
+        /*
+         * Blue -> Green
+         *
+         * (0, 20, 255)
+         *       to
+         * (0, 255, 40)
+         */
+        float t = level / 0.33f;
+
+        r = 0.0f;
+        g = 20.0f + t * (255.0f - 20.0f);
+        b = 255.0f + t * (40.0f - 255.0f);
+
+    } else if (level < 0.66f) {
+
+        /*
+         * Green -> Yellow
+         *
+         * (0, 255, 40)
+         *       to
+         * (255, 200, 0)
+         */
+        float t = (level - 0.33f) / 0.33f;
+
+        r = t * 255.0f;
+        g = 255.0f + t * (200.0f - 255.0f);
+        b = 40.0f + t * (0.0f - 40.0f);
+
+    } else {
+
+        /*
+         * Yellow -> Red
+         *
+         * (255, 200, 0)
+         *       to
+         * (255, 0, 0)
+         */
+        float t = (level - 0.66f) / 0.34f;
+
+        r = 255.0f;
+        g = 200.0f + t * (0.0f - 200.0f);
+        b = 0.0f;
+    }
+
+    uint8_t R = (uint8_t)(r * brightness);
+    uint8_t G = (uint8_t)(g * brightness);
+    uint8_t B = (uint8_t)(b * brightness);
+
+    /*
+     * rgb_led_set_color() now controls the entire 8-LED strip,
+     * so every LED receives exactly the same colour and brightness.
+     */
+    rgb_led_set_color(R, G, B);
+#endif
 }
 
 #else
@@ -613,8 +749,122 @@ static void audio_feed(const int16_t *pcm16, const int32_t *pcm32,
   rgb_led_set_vu(norm, bass_ratio);
 }
 
-void led_audio_feed(const int16_t *pcm, size_t stereo_samples) {
-  audio_feed(pcm, NULL, stereo_samples);
+// void led_audio_feed(const int16_t *pcm, size_t stereo_samples) {
+//   audio_feed(pcm, NULL, stereo_samples);
+// }
+
+void led_audio_feed(const int16_t *pcm, size_t stereo_samples)
+{
+    static float envelope = 0.0f;
+
+    if (stereo_samples == 0 || s_current_state != STATE_PLAYING) {
+        return;
+    }
+
+    /*
+     * Limit the visualizer update rate.
+     *
+     * Keep the repository's existing UPDATE_INTERVAL_US value.
+     */
+    int64_t now = esp_timer_get_time();
+
+    if (now - s_last_update_us < UPDATE_INTERVAL_US) {
+        return;
+    }
+
+    s_last_update_us = now;
+
+    /*
+     * stereo_samples is the number of stereo frames, so there are
+     * two int16_t samples per frame.
+     */
+    size_t total = stereo_samples * 2;
+
+    /*
+     * Calculate RMS amplitude.
+     */
+    uint64_t sum_sq = 0;
+
+    for (size_t i = 0; i < total; i++) {
+        int32_t s = pcm[i];
+
+        sum_sq += (uint64_t)(s * s);
+    }
+
+    float rms = sqrtf((float)sum_sq / (float)total);
+
+    /*
+     * Convert PCM amplitude to dBFS.
+     *
+     * Full-scale signed 16-bit PCM is approximately 32768.
+     * The small offset prevents log10(0).
+     */
+    float dbfs =
+        20.0f * log10f((rms / 32768.0f) + 0.000001f);
+
+    /*
+     * Map the useful musical range onto 0 ... 1.
+     *
+     * Default:
+     *
+     *    -50 dBFS -> 0
+     *    -30 dBFS -> 0.5
+     *    -10 dBFS -> 1
+     */
+    float level =
+        (dbfs - VIS_DB_MIN) /
+        (VIS_DB_MAX - VIS_DB_MIN);
+
+    if (level < 0.0f) {
+        level = 0.0f;
+    }
+
+    if (level > 1.0f) {
+        level = 1.0f;
+    }
+
+    /*
+     * Asymmetric envelope follower.
+     *
+     * Rising audio level:
+     *     respond relatively quickly.
+     *
+     * Falling audio level:
+     *     decay substantially more slowly.
+     *
+     * This keeps drum hits visible without making the LEDs twitch
+     * on individual PCM fluctuations.
+     */
+    if (level > envelope) {
+
+        envelope +=
+            (level - envelope) * VIS_ATTACK;
+
+    } else {
+
+        envelope +=
+            (level - envelope) * VIS_RELEASE;
+    }
+
+    /*
+     * Avoid tiny floating-point residual light when the music
+     * becomes essentially silent.
+     */
+    if (envelope < 0.002f) {
+        envelope = 0.0f;
+    }
+
+    /*
+     * Keep the existing status LED behaviour.
+     */
+    status_led_set_vu(envelope);
+
+    /*
+     * bass_ratio is no longer used by our RGB implementation,
+     * but retaining the second argument avoids changing the
+     * function interface elsewhere in led.c.
+     */
+    rgb_led_set_vu(envelope, 0.0f);
 }
 
 void led_audio_feed_q31(const int32_t *pcm, size_t stereo_samples) {
