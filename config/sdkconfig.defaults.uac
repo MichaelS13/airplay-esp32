@@ -10,7 +10,7 @@
 # Requires a chip with USB OTG (ESP32-S2/S3/P4) and the USB D+/D- pins routed
 # to a device-role (CC pulldown) USB connector.
 
-CONFIG_USB_AUDIO_SINK=y
+CONFIG_USB_AUDIO_SINK=n
 CONFIG_USB_AUDIO_SINK_IDLE_MS=2000
 
 # Stereo speaker only — no microphone endpoint.

@@ -3,4 +3,4 @@
 # (ESP32-S2/S3/P4). Layer on top of a board's defaults, e.g.
 #   idf.py -DSDKCONFIG_DEFAULTS="config/sdkconfig.defaults;config/sdkconfig.defaults.esp32s3;config/sdkconfig.defaults.usb" build
 
-CONFIG_AUDIO_OUTPUT_USB=y
+CONFIG_AUDIO_OUTPUT_USB=n
