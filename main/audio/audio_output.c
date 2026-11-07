@@ -365,11 +365,251 @@ static void feed_led(const void *words, size_t frames) {
 #endif
 }
 
+// static void playback_task(void *arg) {
+//   int16_t *pcm = malloc((size_t)(FRAME_SAMPLES + 1) * 2 * sizeof(int16_t));
+//   int16_t *resample_buf = malloc(MAX_RESAMPLE_FRAMES * 2 * sizeof(int16_t));
+//   out_bufs_t out;
+//   const bool out_ok = out_bufs_alloc(&out, MAX_RESAMPLE_FRAMES);
+//   if (!pcm || !resample_buf || !out_ok) {
+//     ESP_LOGE(TAG, "Failed to allocate buffers");
+//     free(pcm);
+//     playback_task_handle = NULL;
+//     free(resample_buf);
+//     out_bufs_free(&out);
+//     vTaskDelete(NULL);
+//     return;
+//   }
+
+//   size_t written;
+//   while (playback_running) {
+//     // Retuning touches the I2S channel, so it has to happen here between
+//     // writes rather than in the caller's context.
+//     uint32_t pending = s_pending_output_rate;
+//     if (pending != 0) {
+//       s_pending_output_rate = 0;
+//       audio_output_set_sample_rate(pending);
+//       resample_reinit_needed = true;
+//     }
+//     if (resample_reinit_needed) {
+//       resample_reinit_needed = false;
+//       audio_resample_init((uint32_t)source_rate, s_output_rate, 2);
+//     }
+//     if (flush_requested) {
+//       flush_requested = false;
+//       audio_resample_reset();
+//       // The DMA ring is left running.  Stopping the channel to discard its
+//       // few milliseconds also stops the bit clock, and an amplifier that
+//       // mutes on a clock loss (the MAX98357A) pops when it comes back, once
+//       // per flush: a seek flushes twice within 50 ms, which crackles.  The
+//       // ring holds silence by now anyway, since the render went quiet at the
+//       // pause, and the cursor counters stay continuous, which is what the
+//       // depth model expects.
+//     }
+//     size_t samples = audio_output_read_source(pcm, FRAME_SAMPLES + 1);
+//     if (samples > 0) {
+//       int16_t *play_buf = pcm;
+//       size_t play_samples = samples;
+//       if (audio_resample_is_active()) {
+//         play_samples = audio_resample_process(pcm, samples, resample_buf,
+//                                               MAX_RESAMPLE_FRAMES);
+//         play_buf = resample_buf;
+//       }
+//       const void *words =
+//           process_pcm(play_buf, play_samples, airplay_get_volume_q15(), &out);
+//       feed_led(words, play_samples);
+//       if (i2s_channel_write(tx_handle, words, play_samples * OUT_FRAME_BYTES,
+//                             &written, portMAX_DELAY) == ESP_OK) {
+//         __atomic_add_fetch(&output_submitted_frames,
+//                            (uint64_t)(written / OUT_FRAME_BYTES),
+//                            __ATOMIC_RELAXED);
+//       }
+//       taskYIELD();
+//     } else {
+//       // Receiver underflow — output a frame of silence.  Block on the DMA
+//       // write (portMAX_DELAY) so the write itself paces the loop, instead of a
+//       // short timeout plus vTaskDelay(1) which produced jittery silence.
+//       // Through the same processing, like the USB and Bluetooth underruns, so
+//       // EQ tails and volume ramps carry on rather than freeze until the next
+//       // audio arrives.
+//       memset(pcm, 0, (size_t)FRAME_SAMPLES * 2 * sizeof(int16_t));
+//       const void *words =
+//           process_pcm(pcm, FRAME_SAMPLES, airplay_get_volume_q15(), &out);
+//       feed_led(words, FRAME_SAMPLES);
+//       if (i2s_channel_write(tx_handle, words,
+//                             (size_t)FRAME_SAMPLES * OUT_FRAME_BYTES, &written,
+//                             portMAX_DELAY) == ESP_OK) {
+//         __atomic_add_fetch(&output_submitted_frames,
+//                            (uint64_t)(written / OUT_FRAME_BYTES),
+//                            __ATOMIC_RELAXED);
+//       }
+//     }
+//   }
+
+//   free(pcm);
+//   free(resample_buf);
+//   out_bufs_free(&out);
+//   playback_task_handle = NULL;
+//   vTaskDelete(NULL);
+// }
+
+// static void playback_task(void *arg) {
+//   int16_t *pcm = malloc((size_t)(FRAME_SAMPLES + 1) * 2 * sizeof(int16_t));
+//   int16_t *resample_buf = malloc(MAX_RESAMPLE_FRAMES * 2 * sizeof(int16_t));
+//   out_bufs_t out;
+//   const bool out_ok = out_bufs_alloc(&out, MAX_RESAMPLE_FRAMES);
+
+//   if (!pcm || !resample_buf || !out_ok) {
+//     ESP_LOGE(TAG, "Failed to allocate buffers");
+//     free(pcm);
+//     playback_task_handle = NULL;
+//     free(resample_buf);
+//     out_bufs_free(&out);
+//     vTaskDelete(NULL);
+//     return;
+//   }
+
+//   size_t written;
+
+//   while (playback_running) {
+
+//     // Retuning touches the I2S channel, so it has to happen here between
+//     // writes rather than in the caller's context.
+//     uint32_t pending = s_pending_output_rate;
+
+//     if (pending != 0) {
+//       s_pending_output_rate = 0;
+//       audio_output_set_sample_rate(pending);
+//       resample_reinit_needed = true;
+//     }
+
+//     if (resample_reinit_needed) {
+//       resample_reinit_needed = false;
+//       audio_resample_init((uint32_t)source_rate, s_output_rate, 2);
+//     }
+
+//     if (flush_requested) {
+//       flush_requested = false;
+//       audio_resample_reset();
+
+//       // The DMA ring is left running. Stopping the channel to discard its
+//       // few milliseconds also stops the bit clock, and an amplifier that
+//       // mutes on a clock loss can pop when it comes back.
+//     }
+
+//     size_t samples =
+//         audio_output_read_source(pcm, FRAME_SAMPLES + 1);
+
+//     if (samples > 0) {
+
+//       int16_t *play_buf = pcm;
+//       size_t play_samples = samples;
+
+//       if (audio_resample_is_active()) {
+//         play_samples =
+//             audio_resample_process(
+//                 pcm,
+//                 samples,
+//                 resample_buf,
+//                 MAX_RESAMPLE_FRAMES);
+
+//         play_buf = resample_buf;
+//       }
+
+//       /*
+//        * Music visualizer.
+//        *
+//        * IMPORTANT:
+//        * Feed the LED system the 16-bit PCM BEFORE process_pcm().
+//        *
+//        * process_pcm() applies channel processing, EQ and playback volume.
+//        * Feeding the LEDs here therefore makes their response independent
+//        * of the AirPlay playback-volume setting.
+//        */
+//       led_audio_feed(play_buf, play_samples);
+
+//       /*
+//        * Process audio for actual playback.
+//        */
+//       const void *words =
+//           process_pcm(
+//               play_buf,
+//               play_samples,
+//               airplay_get_volume_q15(),
+//               &out);
+
+//       /*
+//        * Do NOT call feed_led(words, play_samples) here.
+//        *
+//        * "words" contains the post-volume output, which is exactly what
+//        * caused the visualizer to disappear at low playback volumes.
+//        */
+
+//       if (i2s_channel_write(
+//               tx_handle,
+//               words,
+//               play_samples * OUT_FRAME_BYTES,
+//               &written,
+//               portMAX_DELAY) == ESP_OK) {
+
+//         __atomic_add_fetch(
+//             &output_submitted_frames,
+//             (uint64_t)(written / OUT_FRAME_BYTES),
+//             __ATOMIC_RELAXED);
+//       }
+
+//       taskYIELD();
+
+//     } else {
+
+//       /*
+//        * Receiver underflow.
+//        *
+//        * This path generates silence. We deliberately don't feed the
+//        * visualizer here. Its slow-release envelope in led.c will let the
+//        * LEDs naturally fade instead.
+//        */
+//       memset(
+//           pcm,
+//           0,
+//           (size_t)FRAME_SAMPLES * 2 * sizeof(int16_t));
+
+//       const void *words =
+//           process_pcm(
+//               pcm,
+//               FRAME_SAMPLES,
+//               airplay_get_volume_q15(),
+//               &out);
+
+//       if (i2s_channel_write(
+//               tx_handle,
+//               words,
+//               (size_t)FRAME_SAMPLES * OUT_FRAME_BYTES,
+//               &written,
+//               portMAX_DELAY) == ESP_OK) {
+
+//         __atomic_add_fetch(
+//             &output_submitted_frames,
+//             (uint64_t)(written / OUT_FRAME_BYTES),
+//             __ATOMIC_RELAXED);
+//       }
+//     }
+//   }
+
+//   free(pcm);
+//   free(resample_buf);
+//   out_bufs_free(&out);
+
+//   playback_task_handle = NULL;
+
+//   vTaskDelete(NULL);
+// }
+
 static void playback_task(void *arg) {
   int16_t *pcm = malloc((size_t)(FRAME_SAMPLES + 1) * 2 * sizeof(int16_t));
   int16_t *resample_buf = malloc(MAX_RESAMPLE_FRAMES * 2 * sizeof(int16_t));
   out_bufs_t out;
   const bool out_ok = out_bufs_alloc(&out, MAX_RESAMPLE_FRAMES);
+
   if (!pcm || !resample_buf || !out_ok) {
     ESP_LOGE(TAG, "Failed to allocate buffers");
     free(pcm);
@@ -381,66 +621,128 @@ static void playback_task(void *arg) {
   }
 
   size_t written;
+
   while (playback_running) {
+
     // Retuning touches the I2S channel, so it has to happen here between
     // writes rather than in the caller's context.
     uint32_t pending = s_pending_output_rate;
+
     if (pending != 0) {
       s_pending_output_rate = 0;
       audio_output_set_sample_rate(pending);
       resample_reinit_needed = true;
     }
+
     if (resample_reinit_needed) {
       resample_reinit_needed = false;
       audio_resample_init((uint32_t)source_rate, s_output_rate, 2);
     }
+
     if (flush_requested) {
       flush_requested = false;
       audio_resample_reset();
-      // The DMA ring is left running.  Stopping the channel to discard its
+
+      // The DMA ring is left running. Stopping the channel to discard its
       // few milliseconds also stops the bit clock, and an amplifier that
-      // mutes on a clock loss (the MAX98357A) pops when it comes back, once
-      // per flush: a seek flushes twice within 50 ms, which crackles.  The
-      // ring holds silence by now anyway, since the render went quiet at the
-      // pause, and the cursor counters stay continuous, which is what the
-      // depth model expects.
+      // mutes on a clock loss can pop when it comes back.
     }
-    size_t samples = audio_output_read_source(pcm, FRAME_SAMPLES + 1);
+
+    size_t samples =
+        audio_output_read_source(pcm, FRAME_SAMPLES + 1);
+
     if (samples > 0) {
+
       int16_t *play_buf = pcm;
       size_t play_samples = samples;
+
       if (audio_resample_is_active()) {
-        play_samples = audio_resample_process(pcm, samples, resample_buf,
-                                              MAX_RESAMPLE_FRAMES);
+        play_samples =
+            audio_resample_process(
+                pcm,
+                samples,
+                resample_buf,
+                MAX_RESAMPLE_FRAMES);
+
         play_buf = resample_buf;
       }
+
+      /*
+       * Music visualizer.
+       *
+       * IMPORTANT:
+       * Feed the LED system the 16-bit PCM BEFORE process_pcm().
+       *
+       * process_pcm() applies channel processing, EQ and playback volume.
+       * Feeding the LEDs here therefore makes their response independent
+       * of the AirPlay playback-volume setting.
+       */
+      led_audio_feed(play_buf, play_samples);
+
+      /*
+       * Process audio for actual playback.
+       */
       const void *words =
-          process_pcm(play_buf, play_samples, airplay_get_volume_q15(), &out);
-      feed_led(words, play_samples);
-      if (i2s_channel_write(tx_handle, words, play_samples * OUT_FRAME_BYTES,
-                            &written, portMAX_DELAY) == ESP_OK) {
-        __atomic_add_fetch(&output_submitted_frames,
-                           (uint64_t)(written / OUT_FRAME_BYTES),
-                           __ATOMIC_RELAXED);
+          process_pcm(
+              play_buf,
+              play_samples,
+              airplay_get_volume_q15(),
+              &out);
+
+      /*
+       * Do NOT call feed_led(words, play_samples) here.
+       *
+       * "words" contains the post-volume output, which is exactly what
+       * caused the visualizer to disappear at low playback volumes.
+       */
+
+      if (i2s_channel_write(
+              tx_handle,
+              words,
+              play_samples * OUT_FRAME_BYTES,
+              &written,
+              portMAX_DELAY) == ESP_OK) {
+
+        __atomic_add_fetch(
+            &output_submitted_frames,
+            (uint64_t)(written / OUT_FRAME_BYTES),
+            __ATOMIC_RELAXED);
       }
+
       taskYIELD();
+
     } else {
-      // Receiver underflow — output a frame of silence.  Block on the DMA
-      // write (portMAX_DELAY) so the write itself paces the loop, instead of a
-      // short timeout plus vTaskDelay(1) which produced jittery silence.
-      // Through the same processing, like the USB and Bluetooth underruns, so
-      // EQ tails and volume ramps carry on rather than freeze until the next
-      // audio arrives.
-      memset(pcm, 0, (size_t)FRAME_SAMPLES * 2 * sizeof(int16_t));
+
+      /*
+       * Receiver underflow.
+       *
+       * This path generates silence. We deliberately don't feed the
+       * visualizer here. Its slow-release envelope in led.c will let the
+       * LEDs naturally fade instead.
+       */
+      memset(
+          pcm,
+          0,
+          (size_t)FRAME_SAMPLES * 2 * sizeof(int16_t));
+
       const void *words =
-          process_pcm(pcm, FRAME_SAMPLES, airplay_get_volume_q15(), &out);
-      feed_led(words, FRAME_SAMPLES);
-      if (i2s_channel_write(tx_handle, words,
-                            (size_t)FRAME_SAMPLES * OUT_FRAME_BYTES, &written,
-                            portMAX_DELAY) == ESP_OK) {
-        __atomic_add_fetch(&output_submitted_frames,
-                           (uint64_t)(written / OUT_FRAME_BYTES),
-                           __ATOMIC_RELAXED);
+          process_pcm(
+              pcm,
+              FRAME_SAMPLES,
+              airplay_get_volume_q15(),
+              &out);
+
+      if (i2s_channel_write(
+              tx_handle,
+              words,
+              (size_t)FRAME_SAMPLES * OUT_FRAME_BYTES,
+              &written,
+              portMAX_DELAY) == ESP_OK) {
+
+        __atomic_add_fetch(
+            &output_submitted_frames,
+            (uint64_t)(written / OUT_FRAME_BYTES),
+            __ATOMIC_RELAXED);
       }
     }
   }
@@ -448,10 +750,11 @@ static void playback_task(void *arg) {
   free(pcm);
   free(resample_buf);
   out_bufs_free(&out);
+
   playback_task_handle = NULL;
+
   vTaskDelete(NULL);
 }
-
 esp_err_t audio_output_init(void) {
   uint8_t saved_mode;
   if (settings_get_channel_mode(&saved_mode) == ESP_OK &&
