@@ -44,21 +44,21 @@ static uint8_t s_brightness = CONFIG_LED_STATUS_BRIGHTNESS;
 // Visualizer input range in dBFS.
 // Signals below VIS_DB_MIN are effectively dark.
 // Signals at VIS_DB_MAX or above are full scale.
-#define VIS_DB_MIN         -50.0f
-#define VIS_DB_MAX         -10.0f
+#define VIS_DB_MIN         -55.0f
+#define VIS_DB_MAX         -3.0f
 
 // Envelope smoothing.
 // Higher attack = faster response.
 // Lower release = slower decay.
-#define VIS_ATTACK           0.30f
-#define VIS_RELEASE          0.055f
+#define VIS_ATTACK           0.60f
+#define VIS_RELEASE          0.30f
 
 // < 1 makes lower levels more visible.
-#define VIS_GAMMA            0.65f
+#define VIS_GAMMA            1.0f
 
 // Maximum LED drive, 0.0 ... 1.0.
 // Starting at 0.70 keeps 8 LEDs from becoming excessively bright.
-#define VIS_MAX_BRIGHTNESS   0.70f
+#define VIS_MAX_BRIGHTNESS   0.98f
 
 
 // ============================================================================
@@ -468,6 +468,11 @@ static void rgb_led_set_mode(led_mode_t mode) {
 
 static void rgb_led_set_vu(float level, float unused_bass_ratio)
 {
+    //-- Logging start
+    // ESP_LOGI("led", "SET_VU CALLED: level=%.3f", level);
+    //-- Logging end
+
+
 #ifdef CONFIG_LED_RGB_ENABLED
     (void)unused_bass_ratio;
 
@@ -486,9 +491,26 @@ static void rgb_led_set_vu(float level, float unused_bass_ratio)
      * Gamma < 1 means quiet passages remain visible without requiring
      * loud passages to run the LEDs at full electrical brightness.
      */
+    // Audio-driven brightness, shaped by gamma.
     float brightness = powf(level, VIS_GAMMA);
 
+    // Apply maximum visualizer brightness.
     brightness *= VIS_MAX_BRIGHTNESS;
+
+    // Apply the user's master brightness slider (0–255).
+    brightness *= (float)s_brightness / 255.0f;
+
+//-- Logging start
+//     static int64_t last_brightness_debug_us = 0;
+//     int64_t brightness_now_us = esp_timer_get_time();
+//
+//     if (brightness_now_us - last_brightness_debug_us >= 500000) {
+//         ESP_LOGI("led", "LED OUTPUT: level=%.3f brightness=%.3f max=%.3f gamma=%.2f",
+//                  level, brightness, VIS_MAX_BRIGHTNESS, VIS_GAMMA);
+//         last_brightness_debug_us = brightness_now_us;
+//     }
+//-- Logging end
+
 
     /*
      * Colour progression:
@@ -543,7 +565,7 @@ static void rgb_led_set_vu(float level, float unused_bass_ratio)
          */
         float t = (level - 0.66f) / 0.34f;
 
-        r = 255.0f;
+        r = 225.0f; // this was 255
         g = 200.0f + t * (0.0f - 200.0f);
         b = 0.0f;
     }
@@ -574,6 +596,10 @@ static void rgb_led_set_color(uint8_t r, uint8_t g, uint8_t b) {
 static void rgb_led_clear(void) {
 }
 static void rgb_led_set_vu(float norm, float bass_ratio) {
+    //-- Logging start
+    //ESP_LOGI("led", "SET_COLOR CALLED: rgb=%u,%u,%u", r, g, b);
+    //-- Logging end
+
   (void)norm;
   (void)bass_ratio;
 }
@@ -756,10 +782,33 @@ static void audio_feed(const int16_t *pcm16, const int32_t *pcm32,
 void led_audio_feed(const int16_t *pcm, size_t stereo_samples)
 {
     static float envelope = 0.0f;
+    //-- Logging start
+//     static int64_t last_state_debug_us = 0;
+//     int64_t state_now_us = esp_timer_get_time();
+//
+//     if (state_now_us - last_state_debug_us >= 1000000) {
+//         ESP_LOGI("led", "LED FEED: state=%d playing=%d",
+//                  s_current_state, STATE_PLAYING);
+//         last_state_debug_us = state_now_us;
+//     }
+    //--Logging end
 
     if (stereo_samples == 0 || s_current_state != STATE_PLAYING) {
         return;
     }
+
+    //-- Logging start
+//     static int64_t last_signal_debug_us = 0;
+//     int64_t signal_now_us = esp_timer_get_time();
+//
+//     if (signal_now_us - last_signal_debug_us >= 1000000) {
+//         ESP_LOGI("led", "LED FEED: samples=%u first=%d",
+//                  (unsigned)stereo_samples,
+//                  pcm[0]);
+//         last_signal_debug_us = signal_now_us;
+//     }
+    //-- Logging end
+
 
     /*
      * Limit the visualizer update rate.
@@ -773,6 +822,8 @@ void led_audio_feed(const int16_t *pcm, size_t stereo_samples)
     }
 
     s_last_update_us = now;
+
+
 
     /*
      * stereo_samples is the number of stereo frames, so there are
@@ -864,7 +915,19 @@ void led_audio_feed(const int16_t *pcm, size_t stereo_samples)
      * but retaining the second argument avoids changing the
      * function interface elsewhere in led.c.
      */
-    rgb_led_set_vu(envelope, 0.0f);
+
+//-- Logging start
+//     static int64_t last_vu_debug_us = 0;
+//     int64_t vu_now_us = esp_timer_get_time();
+//
+//     if (vu_now_us - last_vu_debug_us >= 500000) {
+//         ESP_LOGI("led", "VU: rms=%.1f dbfs=%.1f norm=%.3f envelope=%.3f",
+//                  rms, dbfs, level, envelope);
+//         last_vu_debug_us = vu_now_us;
+//     }
+//--Logging end
+
+rgb_led_set_vu(envelope, 0.0f);
 }
 
 void led_audio_feed_q31(const int32_t *pcm, size_t stereo_samples) {

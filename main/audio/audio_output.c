@@ -3,7 +3,7 @@
 
 #include "audio_output.h"
 #include "rtsp_server.h"
-
+#include <math.h>
 #include "audio_resample.h"
 #include "dac.h"
 #include "led.h"
@@ -678,6 +678,36 @@ static void playback_task(void *arg) {
        * of the AirPlay playback-volume setting.
        */
       led_audio_feed(play_buf, play_samples);
+
+//-- Logging start
+// static int64_t last_led_debug_us = 0;
+// int64_t now_us = esp_timer_get_time();
+//
+// if (now_us - last_led_debug_us >= 1000000) {
+//     int32_t peak = 0;
+//     uint64_t sum_sq = 0;
+//
+//     for (size_t i = 0; i < play_samples * 2; i++) {
+//         int32_t sample = play_buf[i];
+//         int32_t magnitude = sample < 0 ? -sample : sample;
+//
+//         if (magnitude > peak) {
+//             peak = magnitude;
+//         }
+//
+//         sum_sq += (uint64_t)((int64_t)sample * sample);
+//     }
+//
+//     float rms = play_samples > 0
+//         ? sqrtf((float)sum_sq / (play_samples * 2))
+//         : 0.0f;
+//
+//     ESP_LOGI(TAG, "LED INPUT: frames=%u peak=%ld rms=%.1f",
+//              (unsigned)play_samples, (long)peak, rms);
+//
+//     last_led_debug_us = now_us;
+// }
+//-- Logging End
 
       /*
        * Process audio for actual playback.
